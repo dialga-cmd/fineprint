@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useId } from 'react';
 import { CaretDown } from '@phosphor-icons/react';
 import type { ModeConfig } from '@/lib/modes';
 import { MODES } from '@/lib/modes';
@@ -15,6 +15,7 @@ interface Props {
 export function ModeSelector({ value, onChange, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +62,8 @@ export function ModeSelector({ value, onChange, disabled }: Props) {
       {open && (
         <div
           role="listbox"
+          id={listId}
+          aria-label="Select analysis mode"
           className="lookup-card absolute bottom-full left-0 z-30 mb-3 w-[21rem] animate-pop rounded-2xl p-2 sm:w-[23rem]"
         >
           <p className="px-3 pb-2 pt-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-2">

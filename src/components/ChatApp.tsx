@@ -1,12 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, generateId, type UIMessage } from 'ai';
-import { onAuthStateChanged, type User } from 'firebase/auth';
 import { List, Warning } from '@phosphor-icons/react';
+import type { User } from 'firebase/auth';
 import { ModeIcon } from './ModeIcon';
-import { getFirebaseAuth, signInWithGoogle, signOutUser } from '@/lib/firebase';
 import * as fp from '@/lib/firestore';
 import { getMode, type ModeConfig } from '@/lib/modes';
 import type { ConversationMeta, ModeId, StoredMessage } from '@/lib/types';
@@ -16,19 +15,19 @@ import { Sidebar } from './Sidebar';
 import { ChatArea } from './ChatArea';
 import { ChatInput, type ParseState } from './ChatInput';
 import { LoginScreen } from './LoginScreen';
-
-const FIREBASE_CONFIGURED = Boolean(
-  process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN &&
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-);
+import { useAuth } from '@/hooks/useAuth';
+import { useConversationList } from '@/hooks/useConversations';
 
 export function ChatApp() {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(!FIREBASE_CONFIGURED ? false : true);
-  const [signingIn, setSigningIn] = useState(false);
+  const {
+    conversations,
+    setConversations,
+    loadConversations,
+    removeConversation,
+    addConversation,
+    updateConversationMeta,
+  } = useConversationList();
 
-  const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mode, setMode] = useState<ModeConfig>(getMode('ask'));
   const [activeDoc, setActiveDoc] = useState<{ name: string; text: string } | null>(null);
@@ -43,6 +42,7 @@ export function ChatApp() {
   const messagesRef = useRef<UIMessage[]>([]);
   const activeDocRef = useRef<{ name: string; text: string } | null>(null);
   const titledRef = useRef<Set<string>>(new Set());
+  const mobileDrawerRef = useRef<HTMLDivElement>(null);
 
   const { messages, setMessages, sendMessage, regenerate, stop, status, error } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
@@ -59,13 +59,25 @@ export function ChatApp() {
         mode: modeRef.current,
         createdAt: nowMs(),
       };
-      const cfg = getMode(modeRef.current);
-      setModeMap((prev) => ({ ...prev, [message.id]: cfg }));
-      void fp.saveMessages(convId, [assistant]);
-      void fp.updateConversation(convId, { mode: modeRef.current });
+      void fp.saveMessages(convId, [assistant]).catch(console.error);
+      void fp.updateConversation(convId, { mode: modeRef.current }).catch(console.error);
       void maybeTitle(convId);
     },
   });
+
+  const resetSession = useCallback(() => {
+    activeIdRef.current = null;
+    setActiveId(null);
+    setMessages([]);
+    setConversations([]);
+  }, [setActiveId, setMessages, setConversations]);
+
+  const { user, authLoading, signingIn, firebaseConfigured, handleSignIn, handleSignOut } =
+    useAuth({
+      onUserChange: (u) => {
+        if (!u) resetSession();
+      },
+    });
 
   useEffect(() => {
     userRef.current = user;
@@ -100,9 +112,9 @@ export function ChatApp() {
         title = heuristicTitle(topic);
       }
       await fp.renameConversation(convId, title);
-      setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title } : c)));
+      updateConversationMeta(convId, (c) => ({ ...c, title }));
     },
-    [],
+    [updateConversationMeta],
   );
 
   const ensureConversation = useCallback(async (): Promise<string> => {
@@ -118,11 +130,11 @@ export function ChatApp() {
       createdAt: nowMs(),
       updatedAt: nowMs(),
     };
-    setConversations((prev) => [meta, ...prev]);
+    addConversation(meta);
     activeIdRef.current = id;
     setActiveId(id);
     return id;
-  }, []);
+  }, [addConversation, setActiveId]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -152,8 +164,8 @@ export function ChatApp() {
           metadata: docName ? { docName } : undefined,
         },
       ]);
-      void fp.saveMessages(convId, [userMsg]);
-      void fp.updateConversation(convId, { mode: modeNow });
+      void fp.saveMessages(convId, [userMsg]).catch(console.error);
+      void fp.updateConversation(convId, { mode: modeNow }).catch(console.error);
       const token = await uid.getIdToken();
       await sendMessage(
         { text, messageId: userMsgId, metadata: docName ? { docName } : undefined },
@@ -205,9 +217,7 @@ export function ChatApp() {
         setActiveDoc({ name: file.name, text });
         activeDocRef.current = { name: file.name, text };
         setParse({ status: 'idle' });
-        setConversations((prev) =>
-          prev.map((c) => (c.id === convId ? { ...c, hasDoc: true, docName: file.name } : c)),
-        );
+        updateConversationMeta(convId, (c) => ({ ...c, hasDoc: true, docName: file.name }));
       } catch {
         setParse({
           status: 'error',
@@ -217,7 +227,7 @@ export function ChatApp() {
         });
       }
     },
-    [ensureConversation],
+    [ensureConversation, updateConversationMeta],
   );
 
   const handleRemoveDoc = useCallback(async () => {
@@ -225,12 +235,12 @@ export function ChatApp() {
     activeDocRef.current = null;
     const convId = activeIdRef.current;
     if (convId) {
-      await fp.updateConversation(convId, { docName: null, docText: null, hasDoc: false });
-      setConversations((prev) =>
-        prev.map((c) => (c.id === convId ? { ...c, hasDoc: false, docName: undefined } : c)),
-      );
+      await fp
+        .updateConversation(convId, { docName: null, docText: null, hasDoc: false })
+        .catch(console.error);
+      updateConversationMeta(convId, (c) => ({ ...c, hasDoc: false, docName: undefined }));
     }
-  }, []);
+  }, [updateConversationMeta]);
 
   const handleRetry = useCallback(async () => {
     const uid = userRef.current;
@@ -265,7 +275,7 @@ export function ChatApp() {
     setLoadedTitle(undefined);
     setMode(getMode('ask'));
     setSidebarOpen(false);
-  }, [status, stop, setMessages]);
+  }, [status, stop, setMessages, setActiveId]);
 
   const handleSelect = useCallback(
     async (id: string) => {
@@ -288,19 +298,22 @@ export function ChatApp() {
       if (detail.title !== 'New chat') titledRef.current.add(id);
       setSidebarOpen(false);
     },
-    [status, stop, setMessages],
+    [status, stop, setMessages, setActiveId],
   );
 
-  const handleRename = useCallback(async (id: string, title: string) => {
-    titledRef.current.add(id);
-    await fp.renameConversation(id, title);
-    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
-  }, []);
+  const handleRename = useCallback(
+    async (id: string, title: string) => {
+      titledRef.current.add(id);
+      await fp.renameConversation(id, title);
+      updateConversationMeta(id, (c) => ({ ...c, title }));
+    },
+    [updateConversationMeta],
+  );
 
   const handleDelete = useCallback(
     async (id: string) => {
       await fp.deleteConversation(id);
-      setConversations((prev) => prev.filter((c) => c.id !== id));
+      removeConversation(id);
       if (activeIdRef.current === id) {
         activeIdRef.current = null;
         setActiveId(null);
@@ -309,36 +322,40 @@ export function ChatApp() {
         activeDocRef.current = null;
       }
     },
-    [setMessages],
+    [removeConversation, setActiveId, setMessages],
   );
 
-  // ── auth ────────────────────────────────────────────────
   useEffect(() => {
-    if (!FIREBASE_CONFIGURED) return;
-    const unsub = onAuthStateChanged(getFirebaseAuth(), (u) => {
-      setUser(u);
-      setAuthLoading(false);
-      if (u) {
-        void fp.listConversations(u.uid).then(setConversations);
-      } else {
-        setConversations([]);
-        activeIdRef.current = null;
-        setActiveId(null);
-      }
-    });
-    return unsub;
-  }, []);
+    if (!firebaseConfigured || !user) return;
+    void loadConversations(user.uid);
+  }, [firebaseConfigured, user, loadConversations]);
 
-  const handleSignIn = useCallback(async () => {
-    setSigningIn(true);
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      console.error('sign-in failed', err);
-    } finally {
-      setSigningIn(false);
-    }
-  }, []);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const prev = document.activeElement as HTMLElement | null;
+    const drawer = mobileDrawerRef.current;
+    const focusables = drawer?.querySelectorAll<HTMLElement>(
+      'button, [href], input, [tabindex]:not([tabindex="-1"])',
+    );
+    focusables?.[0]?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !focusables || focusables.length === 0) return;
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      prev?.focus();
+    };
+  }, [sidebarOpen]);
 
   const activeMeta = conversations.find((c) => c.id === activeId);
   const activeTitle = activeId ? (activeMeta?.title ?? loadedTitle ?? 'Chat') : 'New chat';
@@ -355,7 +372,16 @@ export function ChatApp() {
       )
     : false;
 
-  if (!FIREBASE_CONFIGURED) {
+  const userMeta = useMemo(
+    () => ({
+      name: user?.displayName ?? null,
+      email: user?.email ?? null,
+      photoURL: user?.photoURL ?? null,
+    }),
+    [user],
+  );
+
+  if (!firebaseConfigured) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
         <div className="max-w-md space-y-4 text-center">
@@ -376,7 +402,10 @@ export function ChatApp() {
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-label="Loading" />
+        <span
+          className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent"
+          aria-label="Loading"
+        />
       </div>
     );
   }
@@ -384,8 +413,6 @@ export function ChatApp() {
   if (!user) {
     return <LoginScreen onSignIn={handleSignIn} loading={signingIn} />;
   }
-
-  const userMeta = { name: user.displayName, email: user.email, photoURL: user.photoURL };
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -397,16 +424,22 @@ export function ChatApp() {
         onRename={handleRename}
         onDelete={handleDelete}
         user={userMeta}
-        onSignOut={signOutUser}
+        onSignOut={handleSignOut}
       />
 
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
+        <div
+          className="fixed inset-0 z-40 md:hidden"
+          id="mobile-sidebar"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Conversations"
+        >
           <div
             className="absolute inset-0 bg-black/60 animate-fade"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 animate-pop">
+          <div ref={mobileDrawerRef} className="absolute inset-y-0 left-0 animate-pop">
             <Sidebar
               conversations={conversations}
               activeId={activeId}
@@ -415,19 +448,21 @@ export function ChatApp() {
               onRename={handleRename}
               onDelete={handleDelete}
               user={userMeta}
-              onSignOut={signOutUser}
+              onSignOut={handleSignOut}
               variant="mobile"
             />
           </div>
         </div>
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main id="main-content" tabIndex={-1} className="flex min-w-0 flex-1 flex-col outline-none">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/40 px-4 backdrop-blur-sm sm:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
             className="rounded-lg p-2 text-muted transition-colors hover:bg-white/5 hover:text-foreground md:hidden"
             aria-label="Open conversations"
+            aria-expanded={sidebarOpen}
+            aria-controls="mobile-sidebar"
           >
             <List size={18} weight="bold" />
           </button>

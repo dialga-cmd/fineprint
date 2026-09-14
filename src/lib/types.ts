@@ -1,7 +1,5 @@
 export type ModeId = 'summarize' | 'compare' | 'risk' | 'checklist' | 'ask';
 
-
-
 export interface StoredMessage {
   id: string;
   role: 'user' | 'assistant';

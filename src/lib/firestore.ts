@@ -78,8 +78,9 @@ export async function deleteConversation(id: string) {
 
 export async function saveMessages(convId: string, messages: StoredMessage[]) {
   const batch = writeBatch(db);
+  const convRef = doc(db, 'conversations', convId);
   for (const m of messages) {
-    const ref = doc(collection(doc(db, 'conversations', convId), 'messages'), m.id);
+    const ref = doc(collection(convRef, 'messages'), m.id);
     batch.set(ref, {
       role: m.role,
       content: m.content,
@@ -88,8 +89,8 @@ export async function saveMessages(convId: string, messages: StoredMessage[]) {
       createdAt: m.createdAt,
     });
   }
+  batch.update(convRef, { updatedAt: Date.now() });
   await batch.commit();
-  await updateConversation(convId, { updatedAt: Date.now() });
 }
 
 function tsToMs(value: unknown): number {

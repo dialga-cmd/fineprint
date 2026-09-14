@@ -21,10 +21,6 @@ export function nowMs(): number {
   return Date.now();
 }
 
-export function quickId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
 export function heuristicTitle(text: string): string {
   const words = text.replace(/\s+/g, ' ').trim().split(' ').slice(0, 8).join(' ');
   return words.length ? words : 'New chat';

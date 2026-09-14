@@ -20,7 +20,7 @@ export function MessageItem({ message, modeTag, streaming }: Props) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end">
+      <article className="flex justify-end">
         <div className="flex max-w-[min(78%,42rem)] flex-col items-end gap-1.5">
           <div className="rounded-2xl rounded-br-md bg-gradient-to-br from-accent to-accent-deep px-4 py-3 text-[15px] leading-relaxed text-background shadow-lg shadow-accent/20">
             <p className="whitespace-pre-wrap">{text}</p>
@@ -32,12 +32,12 @@ export function MessageItem({ message, modeTag, streaming }: Props) {
             </span>
           )}
         </div>
-      </div>
+      </article>
     );
   }
 
   return (
-    <div className="flex flex-col">
+    <article className="flex flex-col">
       <div className="flex items-center gap-2 text-[11px] text-muted">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium tracking-wide">
           <Scales size={11} weight="fill" className="text-accent" aria-hidden />
@@ -78,6 +78,6 @@ export function MessageItem({ message, modeTag, streaming }: Props) {
           situation.
         </p>
       )}
-    </div>
+    </article>
   );
 }

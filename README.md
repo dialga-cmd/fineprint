@@ -100,5 +100,15 @@ npm run dev        # dev server
 npm run build      # production build (TypeScript + linted)
 npm run start      # serve production build
 npm run lint       # next/core-web-vitals + typescript
-npx tsc --noEmit   # typecheck
+npm run test       # run vitest once
+npm run test:watch # vitest watch mode
+npm run typecheck  # tsc --noEmit
+```
+
+## Testing
+
+Tests are written with [Vitest](https://vitest.dev) + Testing Library and live alongside the source in `src/__tests__/`. They cover the pure utility modules (`conv`, `modes`), server verification logic, the `/api/chat` and `/api/title` routes (auth-failure and success paths), and component smoke tests. Run them with:
+
+```bash
+npm run test
 ```

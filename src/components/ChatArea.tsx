@@ -110,7 +110,7 @@ export function ChatArea({ messages, modeOf, streamingMsgId, working, workingLab
             </div>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-8" role="log" aria-live="polite" aria-relevant="additions text">
             <div className="px-1 text-center">
               <h2 className="text-legal truncate text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
               <p className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-2">
@@ -149,7 +149,7 @@ export function ChatArea({ messages, modeOf, streamingMsgId, working, workingLab
             ))}
 
             {working && (
-              <div className="animate-fade flex flex-col">
+              <div className="animate-fade flex flex-col" role="status" aria-label={`${workingLabel ?? 'Working'} in progress`}>
                 <div className="flex items-center gap-2.5 text-[11px] text-muted">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium tracking-wide">
                     <Scales size={12} weight="fill" className="text-accent" aria-hidden />
